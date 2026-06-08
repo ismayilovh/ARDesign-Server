@@ -33,8 +33,10 @@ def upgrade() -> None:
         op.execute("ALTER TYPE userrole_enum ADD VALUE IF NOT EXISTS 'EXPERT'")
 
     # -- 2. design_reviews table ----------------------------------------------
+    # create_table emits CREATE TYPE for this enum on its own (the column
+    # references it), so we must NOT also create it explicitly or the two
+    # collide with "type already exists".
     decision_enum = sa.Enum("PENDING", "APPROVED", "REJECTED", name="reviewdecision_enum")
-    decision_enum.create(op.get_bind(), checkfirst=True)
 
     op.create_table(
         "design_reviews",
