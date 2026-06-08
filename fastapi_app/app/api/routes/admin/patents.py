@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.routes.patents import delete_patent_files
 from app.db.session import get_db
 from app.models.patent import ConversionStatus, Patent
+from app.models.review import effective_review_state
 from app.schemas.admin import AdminPatentItem
 
 router = APIRouter(prefix="/patents")
@@ -26,7 +27,9 @@ async def list_all_patents(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    stmt = select(Patent).options(selectinload(Patent.user))
+    stmt = select(Patent).options(
+        selectinload(Patent.user), selectinload(Patent.reviews)
+    )
 
     if locarno_main:
         stmt = stmt.where(Patent.locarno_main_class == locarno_main)
@@ -58,6 +61,7 @@ async def list_all_patents(
             model_filename=p.model_filename,
             file_type=p.file_type,
             status=p.conversion_status,
+            review_state=effective_review_state(p.reviews),
             uploaded_at=p.uploaded_at,
             locarno_main_class=p.locarno_main_class,
             locarno_subclass=p.locarno_subclass,

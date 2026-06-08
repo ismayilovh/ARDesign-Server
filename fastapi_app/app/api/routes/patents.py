@@ -20,19 +20,29 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_active_user
+from app.api.deps import get_current_active_user, get_optional_user
 from app.core.config import settings
 from app.core.image_security import ALLOWED_MIMES as IMAGE_ALLOWED_MIMES, validate_and_reencode
 from app.core.zip_security import validate_zip_upload
 from app.data import locarno as locarno_cache
 from app.db.session import get_db
 from app.models.patent import ConversionStatus, FileType, ModelScale, Patent
-from app.models.user import User
+from app.models.review import (
+    DesignReview,
+    ReviewDecision,
+    ReviewState,
+    effective_review_state,
+    latest_review,
+)
+from app.models.user import User, UserRole
 from app.schemas.patent import (
+    MySubmissionItem,
     PatentConvertResponse,
     PatentListItem,
+    PatentMetadataUpdate,
     PatentStatusResponse,
     PatentUploadResponse,
+    SubmitResponse,
 )
 from app.worker.tasks import convert_patent_task, generate_from_image_task
 
@@ -67,8 +77,16 @@ def _source_image_views(patent: Patent) -> list[str] | None:
     return sorted(patent.related_files.keys(), key=lambda v: VIEW_ORDER.get(v, 99))
 
 
-def _patent_list_item(patent: Patent) -> PatentListItem:
-    """Build the public catalog/detail DTO from a Patent (with `user` loaded)."""
+def _patent_list_item(
+    patent: Patent,
+    review_state: ReviewState | None = None,
+    rejection_reason: str | None = None,
+) -> PatentListItem:
+    """Build the public catalog/detail DTO from a Patent (with `user` loaded).
+
+    `review_state`/`rejection_reason` are passed in by the caller (which knows
+    whether the requester is allowed to see them); they stay None on anonymous
+    catalog responses."""
     return PatentListItem(
         id=patent.id,
         user_id=patent.user_id,
@@ -82,7 +100,36 @@ def _patent_list_item(patent: Patent) -> PatentListItem:
         has_thumbnail=bool(patent.thumbnail_path),
         conversion_warnings=patent.conversion_warnings or None,
         source_image_views=_source_image_views(patent),
+        review_state=review_state,
+        rejection_reason=rejection_reason,
     )
+
+
+def _latest_rejection_reason(patent: Patent) -> str | None:
+    """The reason from the most recent cycle, but only while it's the active
+    (REJECTED) state — so it surfaces on a rejected design and is cleared once
+    resubmitted."""
+    latest = latest_review(patent.reviews)
+    if latest is not None and latest.status == ReviewDecision.REJECTED:
+        return latest.rejection_reason
+    return None
+
+
+def _can_view_media(patent: Patent, user: User | None) -> bool:
+    """Whether `user` (or anonymous, when None) may fetch this design's GLB /
+    thumbnail / source images.
+
+    APPROVED designs are public. Otherwise: admins and experts may see any state;
+    the owner may preview their own DRAFT/REJECTED design, but during UNDER_REVIEW
+    the registration is obscured even from its owner."""
+    state = effective_review_state(patent.reviews)
+    if state == ReviewState.APPROVED:
+        return True
+    if user is None:
+        return False
+    if user.role in (UserRole.ADMIN, UserRole.EXPERT):
+        return True
+    return user.id == patent.user_id and state in (ReviewState.DRAFT, ReviewState.REJECTED)
 
 
 def _sanitize_filename(name: str) -> str:
@@ -92,8 +139,13 @@ def _sanitize_filename(name: str) -> str:
 
 
 async def _get_owned_patent(patent_id: int, user: User, db: AsyncSession) -> Patent:
-    """Fetch a patent and verify ownership."""
-    patent = await db.get(Patent, patent_id)
+    """Fetch a patent (with its review rows loaded) and verify ownership."""
+    stmt = (
+        select(Patent)
+        .where(Patent.id == patent_id)
+        .options(selectinload(Patent.reviews))
+    )
+    patent = (await db.execute(stmt)).scalar_one_or_none()
     if not patent:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent not found.")
     if patent.user_id != user.id:
@@ -313,6 +365,13 @@ async def request_conversion(
     """Enqueue a Celery task to convert the model to GLB."""
     patent = await _get_owned_patent(patent_id, current_user, db)
 
+    state = effective_review_state(patent.reviews)
+    if state in (ReviewState.UNDER_REVIEW, ReviewState.APPROVED):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This registration is locked while under evaluation or after approval.",
+        )
+
     if patent.conversion_status in (
         ConversionStatus.QUEUED,
         ConversionStatus.GENERATING,
@@ -370,8 +429,17 @@ async def list_patents(
     With `q` set, results are ordered by trigram similarity (best matches first)
     and filtered to rows whose `model_filename` is similar enough to `q`
     (pg_trgm `%` operator at the session's similarity threshold).
+
+    Only APPROVED designs appear here: a design is public once an expert has
+    approved it (it has an APPROVED review row). Drafts, under-review, and
+    rejected designs are excluded.
     """
-    stmt = select(Patent).options(selectinload(Patent.user))
+    # Public gate: the design must have an APPROVED review.
+    stmt = (
+        select(Patent)
+        .where(Patent.reviews.any(DesignReview.status == ReviewDecision.APPROVED))
+        .options(selectinload(Patent.user))
+    )
 
     if locarno_main:
         stmt = stmt.where(Patent.locarno_main_class == locarno_main)
@@ -398,7 +466,206 @@ async def list_patents(
 
     patents = (await db.execute(stmt)).scalars().all()
 
-    return [_patent_list_item(p) for p in patents]
+    # Every row here is approved by construction.
+    return [_patent_list_item(p, review_state=ReviewState.APPROVED) for p in patents]
+
+
+# -- My submissions ------------------------------------------------------------
+
+@router.get("/mine", response_model=list[MySubmissionItem])
+async def list_my_submissions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """The signed-in user's own submissions across every state.
+
+    This is how an owner manages drafts, sees rejection reasons, and tracks
+    approvals - the public catalog only shows approved designs. UNDER_REVIEW
+    items are returned obscured (descriptive fields nulled): during evaluation
+    the registration is hidden even from its owner."""
+    stmt = (
+        select(Patent)
+        .where(Patent.user_id == current_user.id)
+        .options(selectinload(Patent.reviews))
+        .order_by(Patent.uploaded_at.desc())
+    )
+    patents = (await db.execute(stmt)).scalars().all()
+
+    items: list[MySubmissionItem] = []
+    for p in patents:
+        state = effective_review_state(p.reviews)
+        latest = latest_review(p.reviews)
+        if state == ReviewState.UNDER_REVIEW:
+            # Obscured: expose only that it exists and is under review.
+            items.append(MySubmissionItem(
+                id=p.id,
+                review_state=state,
+                submitted_at=latest.submitted_at if latest else None,
+            ))
+            continue
+        items.append(MySubmissionItem(
+            id=p.id,
+            review_state=state,
+            submitted_at=latest.submitted_at if latest else None,
+            rejection_reason=_latest_rejection_reason(p),
+            model_filename=p.model_filename,
+            file_type=p.file_type,
+            conversion_status=p.conversion_status,
+            uploaded_at=p.uploaded_at,
+            locarno_main_class=p.locarno_main_class,
+            locarno_subclass=p.locarno_subclass,
+            has_thumbnail=bool(p.thumbnail_path),
+            warnings=p.conversion_warnings or None,
+            source_image_views=_source_image_views(p),
+        ))
+    return items
+
+
+# -- Submit for evaluation -----------------------------------------------------
+
+@router.post("/{patent_id}/submit", response_model=SubmitResponse, status_code=status.HTTP_202_ACCEPTED)
+async def submit_for_evaluation(
+    patent_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Send a converted design to the expert evaluation queue.
+
+    Allowed from DRAFT or REJECTED, and only once the model has CONVERTED. Opens
+    a new review cycle (PENDING) and locks the registration from further edits
+    until an expert decides."""
+    patent = await _get_owned_patent(patent_id, current_user, db)
+
+    state = effective_review_state(patent.reviews)
+    if state == ReviewState.UNDER_REVIEW:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This registration is already under evaluation.")
+    if state == ReviewState.APPROVED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This registration is already approved.")
+    if patent.conversion_status != ConversionStatus.CONVERTED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Convert the model before submitting it for evaluation.",
+        )
+
+    db.add(DesignReview(patent_id=patent.id, status=ReviewDecision.PENDING))
+    await db.commit()
+
+    return SubmitResponse(patent_id=patent.id, review_state=ReviewState.UNDER_REVIEW)
+
+
+# -- Edit metadata -------------------------------------------------------------
+
+@router.patch("/{patent_id}", response_model=PatentListItem)
+async def update_patent_metadata(
+    patent_id: int,
+    payload: PatentMetadataUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Edit a DRAFT or REJECTED design's metadata (name / Locarno / scale).
+
+    Locked while UNDER_REVIEW or after APPROVED. A rejected design stays REJECTED
+    (its reason remains visible as guidance) until the owner resubmits."""
+    patent = await _get_owned_patent(patent_id, current_user, db)
+
+    state = effective_review_state(patent.reviews)
+    if state not in (ReviewState.DRAFT, ReviewState.REJECTED):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This registration is locked while under evaluation or after approval.",
+        )
+
+    # Locarno main/subclass must move together so the pair stays valid.
+    if (payload.locarno_main_class is None) != (payload.locarno_subclass is None):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Provide both locarno_main_class and locarno_subclass together.",
+        )
+    if payload.locarno_main_class is not None and payload.locarno_subclass is not None:
+        await locarno_cache.validate_pair(db, payload.locarno_main_class, payload.locarno_subclass)
+        patent.locarno_main_class = payload.locarno_main_class
+        patent.locarno_subclass = payload.locarno_subclass
+
+    if payload.design_name is not None:
+        safe_design_name = _sanitize_filename(payload.design_name.strip())
+        if not safe_design_name:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "design_name must contain at least one filename-safe character.",
+            )
+        patent.model_filename = safe_design_name
+
+    if payload.scale is not None:
+        patent.scale = payload.scale
+
+    await db.commit()
+    await db.refresh(patent, attribute_names=["user"])
+
+    return _patent_list_item(
+        patent, review_state=state, rejection_reason=_latest_rejection_reason(patent)
+    )
+
+
+# -- Re-upload model (replace the file) ----------------------------------------
+
+@router.post("/{patent_id}/reupload", response_model=PatentUploadResponse, status_code=status.HTTP_202_ACCEPTED)
+async def reupload_patent(
+    patent_id: int,
+    file: UploadFile = File(...),
+    scale: ModelScale = Form(..., description="Source-file unit (MM/CM/IN/M)."),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Replace the model file of a DRAFT/REJECTED design with a new ZIP.
+
+    Used after a rejection to upload a corrected model. Old artifacts (GLB,
+    thumbnail, extracted files) are removed and conversion resets to UPLOADED;
+    the owner reconverts and then resubmits. Locked while UNDER_REVIEW/APPROVED."""
+    patent = await _get_owned_patent(patent_id, current_user, db)
+
+    state = effective_review_state(patent.reviews)
+    if state not in (ReviewState.DRAFT, ReviewState.REJECTED):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This registration is locked while under evaluation or after approval.",
+        )
+
+    if not file.filename or not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only .zip files are accepted.")
+
+    content = await file.read()
+    model_ext, _ = validate_zip_upload(content, file.filename)
+    file_type = FileType(MODEL_EXTENSIONS[model_ext])
+
+    # Remove the previous artifacts before pointing the record at the new ZIP.
+    delete_patent_files(patent)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_name = _sanitize_filename(file.filename)
+    zip_rel = f"uploads/user_{current_user.id}/{timestamp}_{safe_name}"
+    zip_abs = os.path.join(settings.media_root, zip_rel)
+    os.makedirs(os.path.dirname(zip_abs), exist_ok=True)
+    with open(zip_abs, "wb") as f:
+        f.write(content)
+
+    # Reset to a fresh, unconverted state.
+    patent.zip_file_path = zip_rel
+    patent.file_type = file_type
+    patent.scale = scale
+    patent.storage_path = None
+    patent.related_files = None
+    patent.glb_file_path = None
+    patent.thumbnail_path = None
+    patent.conversion_warnings = None
+    patent.conversion_error = None
+    patent.conversion_status = ConversionStatus.UPLOADED
+    await db.commit()
+
+    return PatentUploadResponse(
+        patent_id=patent.id,
+        status=patent.conversion_status,
+        message="Re-upload successful. POST /patents/{id}/convert to start conversion.",
+    )
 
 
 # -- Detail --------------------------------------------------------------------
@@ -407,24 +674,48 @@ async def list_patents(
 async def get_patent(
     patent_id: int,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
 ):
     """Fetch a single patent's catalog metadata for its detail page.
 
-    Public (like the list and /model endpoints) so anonymous visitors can open
-    a design's dedicated page directly. Owner-only actions (convert/delete) stay
-    behind their own auth-gated routes; this exposes only data already visible
-    via the public list.
+    Visibility follows the review state:
+    - APPROVED designs are public (anonymous visitors and QR scans included).
+    - Admins and experts may open a design in any state.
+    - DRAFT / REJECTED designs are also visible to their owner (so they can
+      preview and manage them).
+    - UNDER_REVIEW designs are obscured from their owner (403); only admins and
+      experts may open them.
+    Anything else returns 404 so non-public designs aren't enumerable.
     """
     stmt = (
         select(Patent)
         .where(Patent.id == patent_id)
-        .options(selectinload(Patent.user))
+        .options(selectinload(Patent.user), selectinload(Patent.reviews))
     )
     patent = (await db.execute(stmt)).scalar_one_or_none()
     if not patent:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent not found.")
 
-    return _patent_list_item(patent)
+    state = effective_review_state(patent.reviews)
+    if state == ReviewState.APPROVED:
+        return _patent_list_item(patent, review_state=state)
+
+    # Admins and experts can see everything.
+    if user is not None and user.role in (UserRole.ADMIN, UserRole.EXPERT):
+        return _patent_list_item(
+            patent, review_state=state, rejection_reason=_latest_rejection_reason(patent)
+        )
+
+    is_owner = user is not None and user.id == patent.user_id
+    if is_owner:
+        if state == ReviewState.UNDER_REVIEW:
+            # Obscured even from the owner during evaluation.
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "This registration is under evaluation.")
+        return _patent_list_item(
+            patent, review_state=state, rejection_reason=_latest_rejection_reason(patent)
+        )
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent not found.")
 
 
 # -- Serve GLB -----------------------------------------------------------------
@@ -433,11 +724,20 @@ async def get_patent(
 async def serve_model(
     patent_id: int,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
 ):
-    """Stream the converted GLB file. Public endpoint (no auth) so that
-    QR-code scans from the mobile app can fetch models directly."""
-    patent = await db.get(Patent, patent_id)
-    if not patent:
+    """Stream the converted GLB file.
+
+    Public for APPROVED designs (so QR-code scans work without a token); for
+    other states only the owner (DRAFT/REJECTED), experts, or admins may fetch
+    it. See _can_view_media."""
+    stmt = (
+        select(Patent)
+        .where(Patent.id == patent_id)
+        .options(selectinload(Patent.reviews))
+    )
+    patent = (await db.execute(stmt)).scalar_one_or_none()
+    if not patent or not _can_view_media(patent, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent not found.")
 
     if patent.conversion_status != ConversionStatus.CONVERTED:
@@ -463,12 +763,19 @@ async def serve_model(
 async def serve_thumbnail(
     patent_id: int,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
 ):
-    """Stream the PNG thumbnail. Public (like /model) so the browse grid and
-    QR-scanned clients can show a preview. 404 when the patent never produced a
-    thumbnail (the render is best-effort) — callers should fall back gracefully."""
-    patent = await db.get(Patent, patent_id)
-    if not patent or not patent.thumbnail_path:
+    """Stream the PNG thumbnail. Public for APPROVED designs (like /model) so the
+    browse grid and QR-scanned clients can show a preview; otherwise restricted
+    to the owner/expert/admin (see _can_view_media). 404 when the patent never
+    produced a thumbnail (the render is best-effort) — callers fall back."""
+    stmt = (
+        select(Patent)
+        .where(Patent.id == patent_id)
+        .options(selectinload(Patent.reviews))
+    )
+    patent = (await db.execute(stmt)).scalar_one_or_none()
+    if not patent or not patent.thumbnail_path or not _can_view_media(patent, user):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Thumbnail not found.")
 
     thumb_abs = os.path.join(settings.media_root, patent.thumbnail_path)
@@ -485,18 +792,26 @@ async def serve_source_image(
     patent_id: int,
     view: str,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
 ):
     """Stream one of the reference photos an image-gen design was built from.
 
-    Public (like /model and /thumbnail) so the design's detail page can show the
-    source views. `view` is a label from the patent's related_files map (front /
-    left / right / back). 404 for ZIP uploads or unknown views."""
-    patent = await db.get(Patent, patent_id)
+    Public for APPROVED designs so the detail page can show source views;
+    otherwise restricted to the owner/expert/admin (see _can_view_media). `view`
+    is a label from the patent's related_files map (front/left/right/back). 404
+    for ZIP uploads or unknown views."""
+    stmt = (
+        select(Patent)
+        .where(Patent.id == patent_id)
+        .options(selectinload(Patent.reviews))
+    )
+    patent = (await db.execute(stmt)).scalar_one_or_none()
     if (
         not patent
         or patent.file_type != FileType.IMAGE
         or not patent.storage_path
         or not isinstance(patent.related_files, dict)
+        or not _can_view_media(patent, user)
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Source image not found.")
 
@@ -519,8 +834,17 @@ async def delete_patent(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Delete a patent record and its files from disk."""
+    """Delete a patent record and its files from disk.
+
+    Blocked while the registration is UNDER_REVIEW (it's locked during
+    evaluation). Admins can still delete any design via the admin route."""
     patent = await _get_owned_patent(patent_id, current_user, db)
+
+    if effective_review_state(patent.reviews) == ReviewState.UNDER_REVIEW:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This registration is locked while under evaluation.",
+        )
 
     delete_patent_files(patent)
 

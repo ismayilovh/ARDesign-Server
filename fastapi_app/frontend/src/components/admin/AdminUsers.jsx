@@ -55,15 +55,18 @@ export default function AdminUsers() {
     }
   }
 
+  const ROLE_BLURB = {
+    USER: 'a regular user with no admin or evaluation access',
+    EXPERT: 'able to evaluate (approve/reject) design submissions, with no admin access',
+    ADMIN: 'a full admin, with no evaluation access',
+  }
+
   function confirmRole(u, role) {
-    const verb = role === 'ADMIN' ? 'Promote' : 'Demote'
     setPending({
-      title: `${verb} ${u.username}?`,
-      message: role === 'ADMIN'
-        ? `${u.username} will gain full admin access.`
-        : `${u.username} will lose admin access.`,
-      confirmLabel: verb,
-      danger: role !== 'ADMIN',
+      title: `Set ${u.username} to ${role}?`,
+      message: `${u.username} will become ${ROLE_BLURB[role] || role}.`,
+      confirmLabel: `Set ${role}`,
+      danger: role === 'USER',
       run: async () => {
         const res = await apiFetch(`/api/admin/users/${u.id}`, {
           method: 'PATCH',
@@ -144,11 +147,13 @@ export default function AdminUsers() {
                   <td>{u.patent_count}</td>
                   <td>{new Date(u.date_joined).toLocaleDateString()}</td>
                   <td className="admin-row-actions">
-                    {u.role === 'ADMIN' ? (
-                      <button disabled={isSelf} onClick={() => confirmRole(u, 'USER')}>Demote</button>
-                    ) : (
-                      <button disabled={isSelf} onClick={() => confirmRole(u, 'ADMIN')}>Promote</button>
-                    )}
+                    {['USER', 'EXPERT', 'ADMIN']
+                      .filter((r) => r !== u.role)
+                      .map((r) => (
+                        <button key={r} disabled={isSelf} onClick={() => confirmRole(u, r)}>
+                          → {r}
+                        </button>
+                      ))}
                     <button disabled={isSelf} onClick={() => confirmActive(u)}>
                       {u.is_active ? 'Deactivate' : 'Activate'}
                     </button>

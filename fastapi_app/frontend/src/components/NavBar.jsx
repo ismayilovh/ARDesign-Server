@@ -21,6 +21,16 @@ export default function NavBar() {
         <NavLink to="/upload" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
           Upload
         </NavLink>
+        {user && (
+          <NavLink to="/my-submissions" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+            My Submissions
+          </NavLink>
+        )}
+        {user?.role === 'EXPERT' && (
+          <NavLink to="/expert" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
+            Evaluations
+          </NavLink>
+        )}
         {user?.role === 'ADMIN' && (
           <NavLink to="/admin" className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}>
             Admin

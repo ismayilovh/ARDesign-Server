@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../api/client'
 import ConfirmDialog from './ConfirmDialog'
-import { statusLabel } from '../../statusLabels'
+import { statusLabel, reviewStateLabel } from '../../statusLabels'
 
 async function readError(res, fallback) {
   try {
@@ -75,7 +75,7 @@ export default function AdminDesigns() {
           <thead>
             <tr>
               <th>ID</th><th>Name</th><th>Owner</th><th>Type</th>
-              <th>Status</th><th>Locarno</th><th>Uploaded</th><th>Actions</th>
+              <th>Status</th><th>Review</th><th>Locarno</th><th>Uploaded</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -91,6 +91,11 @@ export default function AdminDesigns() {
                     <span className="admin-error-hint" title={d.conversion_error}> ⓘ</span>
                   )}
                 </td>
+                <td>
+                  <span className={`admin-status admin-review-${d.review_state}`}>
+                    {reviewStateLabel(d.review_state)}
+                  </span>
+                </td>
                 <td>{d.locarno_main_class || '-'}{d.locarno_subclass ? ` / ${d.locarno_subclass}` : ''}</td>
                 <td>{new Date(d.uploaded_at).toLocaleDateString()}</td>
                 <td className="admin-row-actions">
@@ -99,7 +104,7 @@ export default function AdminDesigns() {
               </tr>
             ))}
             {designs.length === 0 && (
-              <tr><td colSpan={8} className="admin-empty">No designs.</td></tr>
+              <tr><td colSpan={9} className="admin-empty">No designs.</td></tr>
             )}
           </tbody>
         </table>

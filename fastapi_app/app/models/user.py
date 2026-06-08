@@ -13,9 +13,14 @@ if TYPE_CHECKING:
 
 class UserRole(str, enum.Enum):
     """Application role. Replaces the dormant Django-era is_staff/is_superuser
-    flags as the single source of truth for the admin panel's authorization."""
+    flags as the single source of truth for authorization.
+
+    EXPERT is strictly separate from ADMIN: experts evaluate design submissions
+    but get no admin panel; admins run the admin panel (and assign the EXPERT
+    role) but cannot evaluate submissions."""
     USER = "USER"
     ADMIN = "ADMIN"
+    EXPERT = "EXPERT"
 
 
 class User(Base):

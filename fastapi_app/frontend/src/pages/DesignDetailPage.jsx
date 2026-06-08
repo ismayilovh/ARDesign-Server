@@ -4,8 +4,12 @@ import QRCode from 'qrcode'
 import { useAuth } from '../hooks/useAuth'
 import { apiFetch } from '../api/client'
 import { useLocarnoTree } from '../hooks/useLocarnoTree'
+import { useAuthedBlobUrl } from '../hooks/useAuthedBlobUrl'
 import ActionButton from '../components/ActionButton'
-import { statusLabel } from '../statusLabels'
+import AuthedImg from '../components/AuthedImg'
+import ConfirmDialog from '../components/admin/ConfirmDialog'
+import EditDesignModal from '../components/EditDesignModal'
+import { statusLabel, reviewStateLabel } from '../statusLabels'
 
 const POLL_TICKS = 60
 
@@ -14,11 +18,10 @@ function statusClass(status) {
 }
 
 /**
- * Dedicated page for a single design. Carries the actions that used to live on
- * the catalog card (Convert/Retry, Download, Delete) plus an always-visible 3D
- * viewer and QR code. The patent is handed in via router state for an instant
- * first paint, then revalidated against GET /api/patents/:id (which also covers
- * deep links and refreshes where there is no router state).
+ * Dedicated page for a single design. Carries the owner actions (Convert/Retry,
+ * Edit, Submit for evaluation, Download, Delete), an always-visible 3D viewer,
+ * and a QR code. Public (approved) designs load media directly; for an owner's
+ * own draft/rejected design the media is fetched with their token.
  */
 export default function DesignDetailPage() {
   const { id } = useParams()
@@ -33,12 +36,22 @@ export default function DesignDetailPage() {
   const [qrDataUrl, setQrDataUrl] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [show3d, setShow3d] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const pollRef = useRef(null)
+
+  // A design is public once approved; the public list/detail sets review_state
+  // to APPROVED. Treat a missing review_state (legacy/anonymous) as public too.
+  const isPublic = !patent || !patent.review_state || patent.review_state === 'APPROVED'
 
   const fetchPatent = useCallback(async () => {
     try {
       const res = await apiFetch(`/api/patents/${id}`)
       if (res.status === 404) throw new Error('This design no longer exists.')
+      if (res.status === 403) {
+        throw new Error('This registration is under evaluation. You will be able to see it again once an expert completes their review.')
+      }
       if (!res.ok) throw new Error(`Failed to load design (${res.status})`)
       setPatent(await res.json())
       setError(null)
@@ -53,10 +66,10 @@ export default function DesignDetailPage() {
     fetchPatent()
   }, [fetchPatent])
 
-  // Render the QR (it points at the public /model URL) as soon as the model is
-  // ready; clear it back to a hint while the design is still being processed.
+  // The QR points at the public /model URL, so it only makes sense once the
+  // design is both converted AND public (approved). Clear it otherwise.
   useEffect(() => {
-    if (!patent || patent.status !== 'CONVERTED') {
+    if (!patent || patent.status !== 'CONVERTED' || !isPublic) {
       setQrDataUrl(null)
       return
     }
@@ -64,18 +77,21 @@ export default function DesignDetailPage() {
     QRCode.toDataURL(url, { width: 256 })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(null))
-  }, [patent])
+  }, [patent, isPublic])
 
-  // Collapse the 3D viewer if the model stops being available (e.g. a re-convert
-  // flips status back to QUEUED) so we never point model-viewer at a stale URL.
   useEffect(() => {
     if (patent?.status !== 'CONVERTED') setShow3d(false)
   }, [patent?.status])
 
-  // Stop polling if the user navigates away mid-conversion.
   useEffect(() => () => {
     if (pollRef.current) clearInterval(pollRef.current)
   }, [])
+
+  const authedModelUrl = useAuthedBlobUrl(
+    `/api/patents/${id}/model`,
+    !!patent && !isPublic && show3d && patent.status === 'CONVERTED',
+  )
+  const modelSrc = isPublic ? `/api/patents/${id}/model` : authedModelUrl
 
   function pollStatus() {
     if (pollRef.current) return
@@ -116,6 +132,21 @@ export default function DesignDetailPage() {
     }
   }
 
+  async function handleSubmit() {
+    setActionError(null)
+    try {
+      const res = await apiFetch(`/api/patents/${id}/submit`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.detail || 'Could not submit for evaluation')
+      }
+      // It becomes obscured to the owner now, so leave the page.
+      navigate('/my-submissions')
+    } catch (err) {
+      setActionError(err.message)
+    }
+  }
+
   async function handleDownload() {
     setActionError(null)
     try {
@@ -134,17 +165,28 @@ export default function DesignDetailPage() {
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this design?')) return
+    setDeleting(true)
     try {
       const res = await apiFetch(`/api/patents/${id}`, { method: 'DELETE' })
-      if (res.ok || res.status === 204) navigate('/browse')
-    } catch { /* silent */ }
+      if (res.ok || res.status === 204) {
+        navigate('/my-submissions')
+        return
+      }
+      const err = await res.json().catch(() => ({}))
+      setActionError(err.detail || 'Delete failed.')
+      setConfirmDelete(false)
+    } catch {
+      setActionError('Delete failed.')
+      setConfirmDelete(false)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   if (loading) {
     return (
       <div className="page">
-        <p className="browse-subtitle">Loading…</p>
+        <p className="browse-subtitle">Loading...</p>
       </div>
     )
   }
@@ -160,6 +202,9 @@ export default function DesignDetailPage() {
 
   const isOwner = patent.user_id === user?.id
   const isConverted = patent.status === 'CONVERTED'
+  const reviewState = patent.review_state
+  const isEditable = isOwner && (reviewState === 'DRAFT' || reviewState === 'REJECTED')
+  const canSubmit = isEditable && isConverted
   const warnings = patent.warnings ?? []
   const sourceViews = patent.source_image_views ?? []
 
@@ -180,27 +225,52 @@ export default function DesignDetailPage() {
 
   return (
     <div className="page detail-page">
-      <Link to="/browse" className="back-link">← Back to browse</Link>
+      <Link to={isPublic ? '/browse' : '/my-submissions'} className="back-link">
+        ← Back
+      </Link>
 
       <div className="detail-header">
         <h1>{patent.model_filename}</h1>
         <span className={statusClass(patent.status)}>{statusLabel(patent.status)}</span>
+        {reviewState && reviewState !== 'APPROVED' && (
+          <span className={`status status-review status-review-${reviewState.toLowerCase()}`}>
+            {reviewStateLabel(reviewState)}
+          </span>
+        )}
       </div>
+
+      {reviewState === 'REJECTED' && (
+        <section className="detail-reject-banner">
+          <h3>Changes requested</h3>
+          {patent.rejection_reason
+            ? <p>{patent.rejection_reason}</p>
+            : <p>An expert asked for changes before this design can be published.</p>}
+          <p className="meta">
+            Edit the registration (and replace the model if needed), reconvert,
+            then submit it again for evaluation.
+          </p>
+        </section>
+      )}
 
       <div className="detail-grid">
         <div className="detail-media">
           {isConverted && show3d ? (
-            <model-viewer
-              src={`/api/patents/${patent.id}/model`}
-              camera-controls
-              auto-rotate
-              shadow-intensity="1"
-              exposure="1"
-            />
+            modelSrc ? (
+              <model-viewer
+                src={modelSrc}
+                camera-controls
+                auto-rotate
+                shadow-intensity="1"
+                exposure="1"
+              />
+            ) : (
+              <div className="card-thumb card-thumb-empty"><span>Loading 3D...</span></div>
+            )
           ) : patent.has_thumbnail ? (
             <div className="card-thumb">
-              <img
-                src={`/api/patents/${patent.id}/thumbnail`}
+              <AuthedImg
+                path={`/api/patents/${patent.id}/thumbnail`}
+                authed={!isPublic}
                 alt={patent.model_filename}
               />
             </div>
@@ -230,7 +300,11 @@ export default function DesignDetailPage() {
                 <p className="qr-hint">Scan to open the 3D model</p>
               </>
             ) : (
-              <p className="meta">Available once the design is converted.</p>
+              <p className="meta">
+                {isPublic
+                  ? 'Available once the design is converted.'
+                  : 'Available once the design is published.'}
+              </p>
             )}
           </div>
 
@@ -266,15 +340,29 @@ export default function DesignDetailPage() {
                 Retry
               </ActionButton>
             )}
+            {canSubmit && (
+              <ActionButton variant="primary" onClick={handleSubmit}>
+                Submit for evaluation
+              </ActionButton>
+            )}
+            {isEditable && (
+              <ActionButton onClick={() => setShowEdit(true)}>Edit</ActionButton>
+            )}
             {isConverted && (
               <ActionButton onClick={handleDownload}>Download</ActionButton>
             )}
-            {isOwner && (
-              <ActionButton variant="danger" onClick={handleDelete}>
+            {isOwner && reviewState !== 'UNDER_REVIEW' && (
+              <ActionButton variant="danger" onClick={() => setConfirmDelete(true)}>
                 Delete
               </ActionButton>
             )}
           </div>
+          {canSubmit && (
+            <p className="meta">
+              Submitting locks this registration for expert review. You will not
+              be able to edit it until a decision is made.
+            </p>
+          )}
           {actionError && <p className="error">{actionError}</p>}
         </aside>
       </div>
@@ -288,10 +376,10 @@ export default function DesignDetailPage() {
           <div className="detail-sources-grid">
             {sourceViews.map((view) => (
               <figure key={view} className="detail-source">
-                <img
-                  src={`/api/patents/${patent.id}/images/${view}`}
+                <AuthedImg
+                  path={`/api/patents/${patent.id}/images/${view}`}
+                  authed={!isPublic}
                   alt={`${view} view`}
-                  loading="lazy"
                 />
                 <figcaption>{view}</figcaption>
               </figure>
@@ -320,6 +408,27 @@ export default function DesignDetailPage() {
           </ul>
         </section>
       )}
+
+      {showEdit && (
+        <EditDesignModal
+          patent={patent}
+          open={showEdit}
+          onClose={() => setShowEdit(false)}
+          onSaved={() => { setShowEdit(false); fetchPatent() }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete this design?"
+        confirmLabel="Delete"
+        danger
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
+      >
+        <p className="confirm-lead">This permanently deletes the registration and its files. This cannot be undone.</p>
+      </ConfirmDialog>
     </div>
   )
 }

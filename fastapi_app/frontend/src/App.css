@@ -1379,6 +1379,55 @@ header.app > h1 { font-size: 1.5rem; }
 .admin-status-FAILED { color: var(--color-danger); }
 .admin-status-CONVERTING, .admin-status-QUEUED, .admin-status-GENERATING { color: var(--color-warning); }
 .admin-error-hint { color: var(--color-danger); cursor: help; }
+.admin-review-DRAFT { color: #64748b; }
+.admin-review-UNDER_REVIEW { color: var(--color-warning); }
+.admin-review-APPROVED { color: var(--color-success); }
+.admin-review-REJECTED { color: var(--color-danger); }
+
+/* Review workflow (moderation state) */
+.status-review { background: #64748b; }
+.status-review-draft { background: #94a3b8; }
+.status-review-under_review { background: var(--color-warning); }
+.status-review-approved { background: var(--color-success); }
+.status-review-rejected { background: var(--color-danger); }
+
+.detail-reject-banner {
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-soft);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  margin: 1rem 0;
+}
+.detail-reject-banner h3 { margin: 0 0 0.4rem; color: var(--color-danger); }
+.detail-reject-banner p { margin: 0.2rem 0; }
+.status-review { align-self: center; }
+
+.my-sub-reason { color: var(--color-danger); }
+.my-sub-card-obscured { opacity: 0.95; }
+
+.reject-reason-input {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  box-sizing: border-box;
+}
+
+.expert-filters { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1.2rem; }
+.expert-filters label { flex: 1 1 220px; display: flex; flex-direction: column; gap: 0.3rem; }
+.expert-inspect { max-width: 980px; width: 92vw; max-height: 90vh; overflow-y: auto; }
+
+/* Expert queue cards render as <button>; reset native button chrome so they
+   match the Link-based .patent-card tiles. */
+button.patent-card {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--bg-card);
+}
 
 /* Locarno tree editor */
 .locarno-tree, .locarno-subs { list-style: none; margin: 0; padding: 0; }

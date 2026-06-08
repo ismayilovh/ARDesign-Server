@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 from app.models.patent import ConversionStatus, FileType
+from app.models.review import ReviewState
 from app.models.user import UserRole
 
 
@@ -37,6 +38,7 @@ class AdminPatentItem(BaseModel):
     model_filename: str | None = None
     file_type: FileType | None = None
     status: ConversionStatus
+    review_state: ReviewState
     uploaded_at: datetime
     locarno_main_class: str | None = None
     locarno_subclass: str | None = None

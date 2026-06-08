@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from sqlalchemy import DateTime, Enum, ForeignKey, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.models.review import DesignReview
     from app.models.user import User
 
 
@@ -51,6 +52,19 @@ class Patent(Base):
         ForeignKey("users_user.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user: Mapped["User"] = relationship("User", back_populates="patents")
+
+    # --- moderation / review lifecycle ---
+    # The review state (draft/under-review/approved/rejected) is NOT stored on
+    # the patent; it lives in design_reviews (one row per submit/decision cycle)
+    # and is derived via app.models.review.effective_review_state(). A design is
+    # public only when it has an APPROVED review.
+    reviews: Mapped[List["DesignReview"]] = relationship(
+        "DesignReview",
+        back_populates="patent",
+        cascade="all, delete-orphan",
+        order_by="DesignReview.submitted_at",
+        foreign_keys="DesignReview.patent_id",
+    )
 
     # --- file metadata ---
     file_type: Mapped[Optional[FileType]] = mapped_column(

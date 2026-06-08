@@ -14,3 +14,16 @@ export const STATUS_LABELS = {
 export function statusLabel(status) {
   return STATUS_LABELS[status] || status
 }
+
+// Human-readable labels for the backend ReviewState (the design's moderation
+// state, derived from its design_reviews rows).
+export const REVIEW_STATE_LABELS = {
+  DRAFT: 'Draft',
+  UNDER_REVIEW: 'Under evaluation',
+  APPROVED: 'Published',
+  REJECTED: 'Changes requested',
+}
+
+export function reviewStateLabel(state) {
+  return REVIEW_STATE_LABELS[state] || state
+}
