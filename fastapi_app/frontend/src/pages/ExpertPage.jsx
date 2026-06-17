@@ -259,7 +259,16 @@ export default function ExpertPage() {
           {items.map((item) => {
             const line = locarnoLabels(tree, item)
             return (
-              <button key={item.id} type="button" className="patent-card patent-card-link" onClick={() => setSelected(item)}>
+              <div
+                key={item.id}
+                className="patent-card patent-card-link"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelected(item)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(item) }
+                }}
+              >
                 {item.has_thumbnail ? (
                   <div className="card-thumb">
                     <AuthedImg path={`/api/patents/${item.id}/thumbnail`} authed alt={item.model_filename} />
@@ -276,7 +285,7 @@ export default function ExpertPage() {
                 {item.file_type && <p className="meta">Type: {item.file_type}</p>}
                 <p className="meta">Submitted {new Date(item.submitted_at).toLocaleDateString()}</p>
                 <span className="card-open-cta">Evaluate →</span>
-              </button>
+              </div>
             )
           })}
         </section>

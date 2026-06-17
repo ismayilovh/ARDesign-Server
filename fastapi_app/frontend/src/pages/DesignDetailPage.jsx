@@ -66,14 +66,25 @@ export default function DesignDetailPage() {
     fetchPatent()
   }, [fetchPatent])
 
-  // The QR points at the public /model URL, so it only makes sense once the
-  // design is both converted AND public (approved). Clear it otherwise.
+  // Render the QR as soon as the model is ready, so the owner can preview a
+  // draft in AR just like "View in 3D". Public designs use the plain /model URL;
+  // not-yet-public ones embed a short-lived signed token (model_token) so an
+  // unauthenticated scanner can still fetch the model.
   useEffect(() => {
-    if (!patent || patent.status !== 'CONVERTED' || !isPublic) {
+    if (!patent || patent.status !== 'CONVERTED') {
       setQrDataUrl(null)
       return
     }
-    const url = `${window.location.origin}/api/patents/${patent.id}/model`
+    const base = `${window.location.origin}/api/patents/${patent.id}/model`
+    const url = isPublic
+      ? base
+      : patent.model_token
+        ? `${base}?token=${patent.model_token}`
+        : null
+    if (!url) {
+      setQrDataUrl(null)
+      return
+    }
     QRCode.toDataURL(url, { width: 256 })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(null))
@@ -300,11 +311,7 @@ export default function DesignDetailPage() {
                 <p className="qr-hint">Scan to open the 3D model</p>
               </>
             ) : (
-              <p className="meta">
-                {isPublic
-                  ? 'Available once the design is converted.'
-                  : 'Available once the design is published.'}
-              </p>
+              <p className="meta">Available once the design is converted.</p>
             )}
           </div>
 

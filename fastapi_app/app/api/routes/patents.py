@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_active_user, get_optional_user
 from app.core.config import settings
 from app.core.image_security import ALLOWED_MIMES as IMAGE_ALLOWED_MIMES, validate_and_reencode
+from app.core.security import create_media_token, verify_media_token
 from app.core.zip_security import validate_zip_upload
 from app.data import locarno as locarno_cache
 from app.db.session import get_db
@@ -81,12 +82,13 @@ def _patent_list_item(
     patent: Patent,
     review_state: ReviewState | None = None,
     rejection_reason: str | None = None,
+    model_token: str | None = None,
 ) -> PatentListItem:
     """Build the public catalog/detail DTO from a Patent (with `user` loaded).
 
-    `review_state`/`rejection_reason` are passed in by the caller (which knows
-    whether the requester is allowed to see them); they stay None on anonymous
-    catalog responses."""
+    `review_state`/`rejection_reason`/`model_token` are passed in by the caller
+    (which knows whether the requester is allowed to see them); they stay None on
+    anonymous catalog responses."""
     return PatentListItem(
         id=patent.id,
         user_id=patent.user_id,
@@ -102,6 +104,7 @@ def _patent_list_item(
         source_image_views=_source_image_views(patent),
         review_state=review_state,
         rejection_reason=rejection_reason,
+        model_token=model_token,
     )
 
 
@@ -698,12 +701,22 @@ async def get_patent(
 
     state = effective_review_state(patent.reviews)
     if state == ReviewState.APPROVED:
+        # Public: the plain /model URL already works, no capability token needed.
         return _patent_list_item(patent, review_state=state)
+
+    # A signed, short-lived token so the QR link to a not-yet-public model
+    # resolves for an unauthenticated scanner. Only minted once converted.
+    media_token = (
+        create_media_token(patent.id)
+        if patent.conversion_status == ConversionStatus.CONVERTED
+        else None
+    )
 
     # Admins and experts can see everything.
     if user is not None and user.role in (UserRole.ADMIN, UserRole.EXPERT):
         return _patent_list_item(
-            patent, review_state=state, rejection_reason=_latest_rejection_reason(patent)
+            patent, review_state=state,
+            rejection_reason=_latest_rejection_reason(patent), model_token=media_token,
         )
 
     is_owner = user is not None and user.id == patent.user_id
@@ -712,7 +725,8 @@ async def get_patent(
             # Obscured even from the owner during evaluation.
             raise HTTPException(status.HTTP_403_FORBIDDEN, "This registration is under evaluation.")
         return _patent_list_item(
-            patent, review_state=state, rejection_reason=_latest_rejection_reason(patent)
+            patent, review_state=state,
+            rejection_reason=_latest_rejection_reason(patent), model_token=media_token,
         )
 
     raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent not found.")
@@ -725,19 +739,24 @@ async def serve_model(
     patent_id: int,
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_optional_user),
+    token: str | None = Query(None, description="Signed media token (used by QR links)."),
 ):
     """Stream the converted GLB file.
 
     Public for APPROVED designs (so QR-code scans work without a token); for
-    other states only the owner (DRAFT/REJECTED), experts, or admins may fetch
-    it. See _can_view_media."""
+    other states only the owner (DRAFT/REJECTED), experts, admins, or a holder
+    of a valid signed media token may fetch it. The token lets an owner preview
+    a draft in AR by scanning its QR. See _can_view_media / verify_media_token."""
     stmt = (
         select(Patent)
         .where(Patent.id == patent_id)
         .options(selectinload(Patent.reviews))
     )
     patent = (await db.execute(stmt)).scalar_one_or_none()
-    if not patent or not _can_view_media(patent, user):
+    has_access = patent is not None and (
+        _can_view_media(patent, user) or (token is not None and verify_media_token(token, patent.id))
+    )
+    if not has_access:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Patent not found.")
 
     if patent.conversion_status != ConversionStatus.CONVERTED:

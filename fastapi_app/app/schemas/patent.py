@@ -56,6 +56,10 @@ class PatentListItem(BaseModel):
     # REJECTED, the latest reason). None means "not exposed to this requester".
     review_state: ReviewState | None = None
     rejection_reason: str | None = None
+    # Short-lived signed token so the owner/expert/admin can build a QR link to a
+    # not-yet-public model (the /model route accepts it without a login). None on
+    # the public catalog, where the plain /model URL already works.
+    model_token: str | None = None
 
     class Config:
         from_attributes = True

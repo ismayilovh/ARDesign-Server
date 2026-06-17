@@ -1418,16 +1418,7 @@ header.app > h1 { font-size: 1.5rem; }
 .expert-filters { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1.2rem; }
 .expert-filters label { flex: 1 1 220px; display: flex; flex-direction: column; gap: 0.3rem; }
 .expert-inspect { max-width: 980px; width: 92vw; max-height: 90vh; overflow-y: auto; }
-
-/* Expert queue cards render as <button>; reset native button chrome so they
-   match the Link-based .patent-card tiles. */
-button.patent-card {
-  width: 100%;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  background: var(--bg-card);
-}
+.patent-card[role="button"] { cursor: pointer; }
 
 /* Locarno tree editor */
 .locarno-tree, .locarno-subs { list-style: none; margin: 0; padding: 0; }
