@@ -1,5 +1,5 @@
 #!/bin/bash
-# ARPatent API — curl command reference
+# ARDesign API — curl command reference
 # Usage: read and copy individual commands, or run this file end-to-end.
 #
 # Prerequisites: containers running via `docker compose up -d`

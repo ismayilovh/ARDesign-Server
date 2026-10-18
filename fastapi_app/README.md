@@ -1,4 +1,4 @@
-# ARPatent FastAPI backend
+# ARDesign FastAPI backend
 
 3D model conversion service. Upload a ZIP containing an OBJ/STL/STP/IGES/GLB/FBX
 file; a Celery worker spawns an ephemeral converter container that produces a GLB
@@ -16,11 +16,21 @@ Dev and prod are isolated by Compose project name:
 
 | Environment | Project name | Volumes (e.g.) |
 |---|---|---|
-| dev  | `arpatent`       | `arpatent_postgres_data`      |
-| prod | `arpatent-prod`  | `arpatent-prod_postgres_data` |
+| dev  | `ardesign`       | `ardesign_postgres_data`      |
+| prod | `ardesign-prod`  | `ardesign-prod_postgres_data` |
 
 So the two environments have independent databases and media. You can run one,
 tear it down, run the other — they don't see each other's data.
+
+> **Existing installation upgrade:** the ARDesign rename changes the Compose
+> project prefix, database name, and default named-volume names. Existing data
+> volumes are left on disk. Set `POSTGRES_VOLUME_NAME`, `MEDIA_VOLUME_NAME`,
+> `FRONTEND_DIST_VOLUME_NAME`, `CERTBOT_WWW_VOLUME_NAME`, and
+> `CERTBOT_CONF_VOLUME_NAME` in the production `.env` to the existing physical
+> volume names before starting the renamed stack; otherwise Compose creates
+> empty volumes. The existing PostgreSQL database also needs to be renamed to
+> `ardesigndb`. Back up the database before upgrading, and update `POSTGRES_DB`
+> in `.env` to `ardesigndb`.
 
 ---
 
@@ -105,7 +115,7 @@ Edit `.env`:
 - Set a strong `JWT_SECRET_KEY`.
 - Leave `CORS_ORIGINS` as the placeholder for now — you'll set it in step 5.
 - `APP_VERSION=v0.1.0` (must match the image tag in step 3).
-- `MEDIA_VOLUME_NAME=arpatent-prod_media_data` (default in `.env.example`).
+- `MEDIA_VOLUME_NAME=ardesign-prod_media_data` (default in `.env.example`).
 
 `APP_VERSION` is read automatically from `.env` by Compose, so you don't need
 to `export` it. Works on Windows cmd/PowerShell, git bash, and Linux.
@@ -124,12 +134,12 @@ docker compose -f docker-compose.prod.yml logs -f worker
 ```
 This leaves the API and named data volumes running. The worker briefly restarts;
 in-flight conversions may be retried by Celery. To roll back, set
-`CONVERTER_IMAGE=youndria/arpatent:1.5` in `.env`, pull that tag if it is still
-available, and run the same worker recreation command.
+`CONVERTER_IMAGE=ismayilovh/ardesign-converter:<previous-tag>` in `.env`, pull
+that tag if it is still available, and run the same worker recreation command.
 
 **3. Build the api image** (tag must match `APP_VERSION` in `.env`):
 ```bash
-docker build -t arpatent-api:v0.1.0 .
+docker build -t ardesign-api:v0.1.0 .
 ```
 
 **4. Bring up the stack:**
@@ -163,7 +173,7 @@ docker compose -f docker-compose.prod.yml up -d api
 ```
 
 If the ngrok subdomain changes every restart, use a reserved domain (paid
-tier) or `--subdomain=arpatent` so `CORS_ORIGINS` stays stable.
+tier) or `--subdomain=ardesign` so `CORS_ORIGINS` stays stable.
 
 Hit the ngrok URL in a browser. Done.
 
@@ -186,8 +196,8 @@ docker compose -f docker-compose.prod.yml down
 ```
 
 This stops and removes containers but **keeps the named volumes**
-(`arpatent-prod_postgres_data`, `arpatent-prod_media_data`,
-`arpatent-prod_frontend_dist`, `arpatent-prod_certbot_*`). DB rows and
+(`ardesign-prod_postgres_data`, `ardesign-prod_media_data`,
+`ardesign-prod_frontend_dist`, `ardesign-prod_certbot_*`). DB rows and
 uploaded files are intact on the next `up`.
 
 > **Never use `down -v` in prod.** The `-v` flag deletes the volumes, which
@@ -204,7 +214,7 @@ docker compose -f docker-compose.prod.yml start
 
 ```bash
 # 1. Build and tag the new image
-docker build -t arpatent-api:v0.2.0 .
+docker build -t ardesign-api:v0.2.0 .
 
 # 2. Bump APP_VERSION=v0.2.0 in .env
 

@@ -1,7 +1,7 @@
 # Converter image runtime contract
 
-These notes describe the converter behavior observed in the original
-`youndria/arpatent:1.5` image. The configured replacement is
+These notes describe the converter behavior observed in the previous
+third-party converter image, version 1.5. The configured replacement is
 `ismayilovh/ardesign-converter:latest`; it is intended to preserve the same
 runtime contract. Re-check this document if that compatibility changes.
 
@@ -101,7 +101,7 @@ of the converted GLB via `app/worker/thumbnail.py` (copied into the container at
   this GPU-less box; Cycles' CPU path tracer needs no GL at all. Conversion
   "works" only because GLTF import/export is pure data — it never renders, so a
   working converter does NOT imply a working GL stack.
-- Verified end-to-end in the original `youndria/arpatent:1.5` container: a 512² /
+- Verified end-to-end in the previous converter image, version 1.5: a 512² /
   32-sample denoised Cycles-CPU render of a real DRACO GLB takes ~4s and comes
   out correctly framed with textures and a transparent background.
 - `bpy.ops.import_scene.gltf(...)` and `bpy.ops.wm.read_factory_settings(

@@ -56,8 +56,8 @@ cd ~/Hunyuan3D-2
 git fetch origin && git checkout f8db63096c8282cb27354314d896feba5ba6ff8a
 
 # Apply:
-git apply --check /path/to/ARPatent/patches/hunyuan3d-api-server.patch
-git apply /path/to/ARPatent/patches/hunyuan3d-api-server.patch
+git apply --check /path/to/ARDesign/patches/hunyuan3d-api-server.patch
+git apply /path/to/ARDesign/patches/hunyuan3d-api-server.patch
 ```
 
 Or use the wrapper: `bash patches/apply.sh /path/to/Hunyuan3D-2`.

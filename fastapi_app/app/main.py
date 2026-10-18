@@ -5,7 +5,7 @@ from app.api.routes import auth, locarno, patents
 from app.api.routes import admin
 from app.core.config import settings
 
-app = FastAPI(title="ARPatent API")
+app = FastAPI(title="ARDesign API")
 
 app.add_middleware(
     CORSMiddleware,

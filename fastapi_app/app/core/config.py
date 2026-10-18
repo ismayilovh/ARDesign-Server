@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # --- database ---
     postgres_user: str = "myuser"
     postgres_password: str  # required — must come from .env
-    postgres_db: str = "arpatentdb"
+    postgres_db: str = "ardesigndb"
     postgres_host: str = "db"
     postgres_port: int = 5432
 
@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # --- media storage ---
     media_root: str = "/app/media"
-    media_volume_name: str = "arpatent_media_data"
+    media_volume_name: str = "ardesign_media_data"
 
     # --- Hunyuan3D image-to-3D service ---
     # Host-native API server (patched api_server.py). Worker reaches it via

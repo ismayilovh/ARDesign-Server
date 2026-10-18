@@ -1,4 +1,4 @@
-name: arpatent-prod
+name: ardesign-prod
 
 # Shared docker log driver config — caps each container's json-file log at
 # 30MB (10MB × 3 files) instead of unbounded growth that can fill the host
@@ -14,7 +14,7 @@ services:
   # -- PostgreSQL ---------------------------------------------------------------
   db:
     image: postgres:15
-    container_name: arpatent_db
+    container_name: ardesign_db
     restart: unless-stopped
     env_file: .env
     ports:
@@ -38,7 +38,7 @@ services:
   # -- Redis --------------------------------------------------------------------
   redis:
     image: redis:7-alpine
-    container_name: arpatent_redis
+    container_name: ardesign_redis
     restart: unless-stopped
     networks:
       - app-net
@@ -52,8 +52,8 @@ services:
 
   # -- FastAPI ------------------------------------------------------------------
   api:
-    image: arpatent-api:${APP_VERSION:-latest}
-    container_name: arpatent_api
+    image: ardesign-api:${APP_VERSION:-latest}
+    container_name: ardesign_api
     # Gunicorn supervises uvicorn workers. --max-requests recycles each worker
     # after ~1000 requests (jittered) to bound memory leaks. --graceful-timeout
     # caps how long workers can hold up shutdown.
@@ -96,8 +96,8 @@ services:
 
   # -- Celery worker ------------------------------------------------------------
   worker:
-    image: arpatent-api:${APP_VERSION:-latest}
-    container_name: arpatent_worker
+    image: ardesign-api:${APP_VERSION:-latest}
+    container_name: ardesign_worker
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1
     init: true
     restart: unless-stopped
@@ -120,7 +120,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       CONVERTER_IMAGE: ${CONVERTER_IMAGE:-ismayilovh/ardesign-converter:latest}
       MEDIA_ROOT: /app/media
-      MEDIA_VOLUME_NAME: arpatent-prod_media_data
+      MEDIA_VOLUME_NAME: ${MEDIA_VOLUME_NAME:-ardesign-prod_media_data}
       DOCKER_HOST: tcp://socket-proxy:2375
     networks:
       - app-net
@@ -134,8 +134,8 @@ services:
   # concurrency=1 on the dedicated "generate" queue. No Docker socket needed
   # (it only makes HTTP calls to the host-native Hunyuan API server).
   generator:
-    image: arpatent-api:${APP_VERSION:-latest}
-    container_name: arpatent_generator
+    image: ardesign-api:${APP_VERSION:-latest}
+    container_name: ardesign_generator
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1 -Q generate
     init: true
     restart: unless-stopped
@@ -166,7 +166,7 @@ services:
   # to the celery process. Whitelists /containers/* only.
   socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3
-    container_name: arpatent_socket_proxy
+    container_name: ardesign_socket_proxy
     restart: unless-stopped
     environment:
       CONTAINERS: 1
@@ -200,7 +200,7 @@ services:
   frontend-builder:
     build:
       context: ./frontend
-    container_name: arpatent_frontend_builder
+    container_name: ardesign_frontend_builder
     command: sh -c "rm -rf /dst/* && cp -r /app/dist/. /dst/"
     volumes:
       - frontend_dist:/dst
@@ -210,7 +210,7 @@ services:
   # -- Nginx reverse proxy ------------------------------------------------------
   nginx:
     image: nginx:alpine
-    container_name: arpatent_nginx
+    container_name: ardesign_nginx
     restart: unless-stopped
     ports:
       - "80:80"
@@ -234,7 +234,7 @@ services:
   # -- Certbot (SSL) ------------------------------------------------------------
   certbot:
     image: certbot/certbot
-    container_name: arpatent_certbot
+    container_name: ardesign_certbot
     volumes:
       - certbot_www:/var/www/certbot
       - certbot_conf:/etc/letsencrypt
@@ -242,10 +242,15 @@ services:
 
 volumes:
   postgres_data:
+    name: ${POSTGRES_VOLUME_NAME:-ardesign-prod_postgres_data}
   media_data:
+    name: ${MEDIA_VOLUME_NAME:-ardesign-prod_media_data}
   frontend_dist:
+    name: ${FRONTEND_DIST_VOLUME_NAME:-ardesign-prod_frontend_dist}
   certbot_www:
+    name: ${CERTBOT_WWW_VOLUME_NAME:-ardesign-prod_certbot_www}
   certbot_conf:
+    name: ${CERTBOT_CONF_VOLUME_NAME:-ardesign-prod_certbot_conf}
 
 networks:
   app-net:

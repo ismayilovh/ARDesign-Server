@@ -27,7 +27,7 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <h1>ARPatent</h1>
+        <h1>ARDesign</h1>
         <h2>Sign In</h2>
         <form onSubmit={handleSubmit}>
           <label>

@@ -1,5 +1,5 @@
-const TOKEN_KEY = 'arpatent_access_token'
-const REFRESH_KEY = 'arpatent_refresh_token'
+const TOKEN_KEY = 'ardesign_access_token'
+const REFRESH_KEY = 'ardesign_refresh_token'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY)

@@ -1,13 +1,13 @@
-name: arpatent
+name: ardesign
 
 services:
 
   # ── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
     image: postgres:15
-    container_name: arpatent_db
+    container_name: ardesign_db
     environment:
-      POSTGRES_DB: arpatentdb
+      POSTGRES_DB: ardesigndb
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: samet123
     volumes:
@@ -15,14 +15,14 @@ services:
     networks:
       - app-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U myuser -d arpatentdb"]
+      test: ["CMD-SHELL", "pg_isready -U myuser -d ardesigndb"]
       interval: 5s
       retries: 10
 
   # ── Redis (Celery broker + result backend) ──────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: arpatent_redis
+    container_name: ardesign_redis
     networks:
       - app-net
     healthcheck:
@@ -33,7 +33,7 @@ services:
   # ── FastAPI ─────────────────────────────────────────────────────────────────
   api:
     build: .
-    container_name: arpatent_api
+    container_name: ardesign_api
     # Dev keeps uvicorn --reload for hot-reload (gunicorn's reload is worse).
     # --timeout-graceful-shutdown bounds shutdown so we don't repeat the prod
     # "Stopping for 147s" symptom locally either.
@@ -53,7 +53,7 @@ services:
         condition: service_healthy
     environment:
       POSTGRES_HOST: db
-      POSTGRES_DB: arpatentdb
+      POSTGRES_DB: ardesigndb
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: samet123
       REDIS_URL: redis://redis:6379/0
@@ -66,7 +66,7 @@ services:
   # ── Celery worker ───────────────────────────────────────────────────────────
   worker:
     build: .
-    container_name: arpatent_worker
+    container_name: ardesign_worker
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1
     init: true
     stop_grace_period: 30s
@@ -83,14 +83,14 @@ services:
         condition: service_started
     environment:
       POSTGRES_HOST: db
-      POSTGRES_DB: arpatentdb
+      POSTGRES_DB: ardesigndb
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: samet123
       REDIS_URL: redis://redis:6379/0
       CONVERTER_IMAGE: ${CONVERTER_IMAGE:-ismayilovh/ardesign-converter:latest}
       MEDIA_ROOT: /app/media
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-change-me}
-      MEDIA_VOLUME_NAME: arpatent_media_data
+      MEDIA_VOLUME_NAME: ardesign_media_data
       DOCKER_HOST: tcp://socket-proxy:2375
     networks:
       - app-net
@@ -102,7 +102,7 @@ services:
   # calls to the host-native Hunyuan API server.
   generator:
     build: .
-    container_name: arpatent_generator
+    container_name: ardesign_generator
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1 -Q generate
     init: true
     stop_grace_period: 30s
@@ -117,7 +117,7 @@ services:
         condition: service_healthy
     environment:
       POSTGRES_HOST: db
-      POSTGRES_DB: arpatentdb
+      POSTGRES_DB: ardesigndb
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: samet123
       REDIS_URL: redis://redis:6379/0
@@ -132,7 +132,7 @@ services:
   # ── Docker socket proxy (dev mirror of prod) ───────────────────────────────
   socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3
-    container_name: arpatent_socket_proxy
+    container_name: ardesign_socket_proxy
     restart: unless-stopped
     environment:
       CONTAINERS: 1

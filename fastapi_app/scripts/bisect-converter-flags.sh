@@ -11,7 +11,7 @@
 
 set -u
 
-MEDIA_VOLUME="arpatent-prod_media_data"
+MEDIA_VOLUME="ardesign-prod_media_data"
 IMAGE="${CONVERTER_IMAGE:-ismayilovh/ardesign-converter:latest}"
 TEST_ZIP="/tmp/bisect-test.zip"
 LOG="/tmp/bisect-stdout.log"

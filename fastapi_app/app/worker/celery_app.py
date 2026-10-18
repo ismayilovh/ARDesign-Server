@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 CONVERTER_IMAGE = settings.converter_image
 
 celery_app = Celery(
-    "arpatent_worker",
+    "ardesign_worker",
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=["app.worker.tasks"],

@@ -9,7 +9,7 @@ export default function LandingPage() {
       <section className="landing-hero">
         <h1>Register your designs. Render them in 3D.</h1>
         <p className="lead">
-          ARPatent turns your industrial design submissions into interactive
+          ARDesign turns your industrial design submissions into interactive
           3D models, properly classified under the Locarno system, ready to
           view in your browser or scan into augmented reality.
         </p>
@@ -25,7 +25,7 @@ export default function LandingPage() {
       </section>
 
       <section className="landing-section">
-        <h2>What <span className="accent">ARPatent</span> does</h2>
+        <h2>What <span className="accent">ARDesign</span> does</h2>
         <div className="feature-grid">
           <div className="feature-card">
             <div className="feature-icon">⊞</div>
@@ -89,7 +89,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="landing-footer">
-        ARPatent · industrial-design registration with built-in 3D
+        ARDesign · industrial-design registration with built-in 3D
       </footer>
     </div>
   )
