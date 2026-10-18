@@ -4,7 +4,7 @@ Celery tasks for 3D model conversion and generation.
 Two independent flows:
 
 convert_patent_task (queue: convert, concurrency=1)
-  Takes an uploaded ZIP, runs it through the ephemeral youndria/arpatent:1.2
+  Takes an uploaded ZIP, runs it through the configured ephemeral converter
   container via DooD, produces a GLB. See convert_patent_task docstring.
 
 generate_from_image_task (queue: generate, concurrency=1)

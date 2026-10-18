@@ -32,8 +32,10 @@ tear it down, run the other — they don't see each other's data.
 - The converter image, pulled on the host (worker spawns it as a sibling
   container per conversion — it is not built from this repo):
   ```bash
-  docker pull youndria/arpatent:1.2
+  docker pull ismayilovh/ardesign-converter:latest
   ```
+  Set `CONVERTER_IMAGE` in `.env` to a specific published tag for deployments;
+  the default is `ismayilovh/ardesign-converter:latest`.
 
 ---
 
@@ -110,8 +112,20 @@ to `export` it. Works on Windows cmd/PowerShell, git bash, and Linux.
 
 **2. Pull the converter image:**
 ```bash
-docker pull youndria/arpatent:1.2
+docker pull ismayilovh/ardesign-converter:latest
 ```
+The worker launches this image through the host Docker socket. To roll out a
+converter change on an existing deployment, first pull the image, set
+`CONVERTER_IMAGE=ismayilovh/ardesign-converter:<tag>` in `.env` (use the exact
+tag you published; `latest` is the default), then recreate only the worker:
+```bash
+docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate worker
+docker compose -f docker-compose.prod.yml logs -f worker
+```
+This leaves the API and named data volumes running. The worker briefly restarts;
+in-flight conversions may be retried by Celery. To roll back, set
+`CONVERTER_IMAGE=youndria/arpatent:1.5` in `.env`, pull that tag if it is still
+available, and run the same worker recreation command.
 
 **3. Build the api image** (tag must match `APP_VERSION` in `.env`):
 ```bash

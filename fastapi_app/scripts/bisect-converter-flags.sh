@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Bisect the docker flags used by app/worker/tasks.py to find which one
-# causes youndria/arpatent:1.2 to SIGABRT (exit 134) on this Linux host.
+# causes the converter image to SIGABRT (exit 134) on this Linux host.
 #
 # Run on the production server (where the failure reproduces).
 # Requires: a non-empty uploaded zip already in the prod media volume.
@@ -12,7 +12,7 @@
 set -u
 
 MEDIA_VOLUME="arpatent-prod_media_data"
-IMAGE="youndria/arpatent:1.2"
+IMAGE="${CONVERTER_IMAGE:-ismayilovh/ardesign-converter:latest}"
 TEST_ZIP="/tmp/bisect-test.zip"
 LOG="/tmp/bisect-stdout.log"
 

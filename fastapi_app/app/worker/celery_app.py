@@ -8,10 +8,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Docker image used for the ephemeral converter containers. Defined here (not in
-# tasks.py) so the orphan sweeper below and the task that spawns the containers
-# share one source of truth — bumping the tag in one place can't desync them.
-CONVERTER_IMAGE = "youndria/arpatent:1.5"
+# Docker image used for ephemeral converter containers. The task and orphan
+# sweeper share this setting so a tag change cannot desync them.
+CONVERTER_IMAGE = settings.converter_image
 
 celery_app = Celery(
     "arpatent_worker",
@@ -49,7 +48,7 @@ def _prune_orphan_converters(**_kwargs):
 
     If the worker is SIGKILLed mid-task (e.g. docker compose down beyond
     stop_grace_period), tasks.py's finally block can't run docker rm -f and
-    the spawned youndria/arpatent container is orphaned. This handler runs
+    the spawned converter container is orphaned. This handler runs
     at every worker process start (boot + max_tasks_per_child recycles) and
     prunes them. Safe with --concurrency=1: no other task is running on this
     container at the moment the signal fires.

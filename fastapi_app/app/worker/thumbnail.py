@@ -1,5 +1,5 @@
-"""Headless Blender thumbnail renderer — runs INSIDE the youndria/arpatent
-converter container, never in the FastAPI/worker process.
+"""Headless Blender thumbnail renderer — runs INSIDE the configured converter
+container, never in the FastAPI/worker process.
 
 `generate_thumbnail_task` copies this file into an ephemeral converter
 container and runs it with the converter's bundled Python/bpy:

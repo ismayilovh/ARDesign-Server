@@ -16,6 +16,9 @@ class Settings(BaseSettings):
 
     # --- redis / celery ---
     redis_url: str = "redis://redis:6379/0"
+    # Image launched by the Celery worker for model conversion. Override in
+    # .env to pin a release or roll back without changing application code.
+    converter_image: str = "ismayilovh/ardesign-converter:latest"
 
     # --- media storage ---
     media_root: str = "/app/media"

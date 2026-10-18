@@ -118,6 +118,7 @@ services:
     environment:
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
+      CONVERTER_IMAGE: ${CONVERTER_IMAGE:-ismayilovh/ardesign-converter:latest}
       MEDIA_ROOT: /app/media
       MEDIA_VOLUME_NAME: arpatent-prod_media_data
       DOCKER_HOST: tcp://socket-proxy:2375

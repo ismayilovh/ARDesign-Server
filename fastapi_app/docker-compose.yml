@@ -87,6 +87,7 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: samet123
       REDIS_URL: redis://redis:6379/0
+      CONVERTER_IMAGE: ${CONVERTER_IMAGE:-ismayilovh/ardesign-converter:latest}
       MEDIA_ROOT: /app/media
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-change-me}
       MEDIA_VOLUME_NAME: arpatent_media_data
