@@ -8,7 +8,7 @@ export default function NavBar() {
     <header className="nav-bar">
       <NavLink to="/" className="nav-brand" end>
         <span className="nav-brand-mark">AR</span>
-        <span className="nav-brand-word">Patent</span>
+        <span className="nav-brand-word">Design</span>
       </NavLink>
 
       <nav className="nav-links">
