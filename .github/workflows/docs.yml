@@ -6,12 +6,14 @@ on:
       - master
     paths:
       - "docs/**"
+      - "fastapi_app/app/**"
       - "docs-requirements.txt"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
+      - "fastapi_app/app/**"
       - "docs-requirements.txt"
       - "mkdocs.yml"
       - ".github/workflows/docs.yml"
